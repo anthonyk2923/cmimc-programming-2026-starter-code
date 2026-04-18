@@ -10,11 +10,11 @@ import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 
-from benchmark import RandomBuyer, GreedyHighID, HeavySaboteur
+from benchmark import DiversifiedInvestor, LeaderPunisher, CycleSaboteur
 from engine import GameEngine
 from submission import SubmissionPlayer
 
-PLAYER_CTORS = [SubmissionPlayer, RandomBuyer, GreedyHighID, HeavySaboteur]
+PLAYER_CTORS = [SubmissionPlayer, DiversifiedInvestor, LeaderPunisher, CycleSaboteur]
 PLAYER_NAMES = [player_ctor.__name__ for player_ctor in PLAYER_CTORS]
 
 GAME_PARAMS = {

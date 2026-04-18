@@ -1,12 +1,6 @@
 from typing import Any, List, Tuple
 
 
-STYLE_SPARSE = 0
-STYLE_DENSE = 1
-STYLE_CLUSTER = 2
-STYLE_HALIN = 3
-
-
 def _bit_get(blob, idx: int) -> int:
     return (blob[idx >> 3] >> (idx & 7)) & 1
 
@@ -17,45 +11,32 @@ def _bit_set(blob: bytearray, idx: int) -> None:
 
 def _style(root_degree: int) -> int:
     if root_degree <= 2:
-        return STYLE_SPARSE
+        return 0
     if root_degree >= 8:
-        return STYLE_DENSE
+        return 1
     if root_degree >= 5:
-        return STYLE_CLUSTER
-    return STYLE_HALIN
+        return 2
+    return 3
 
 
-def _bot_plan(style: int) -> Tuple[int, int]:
-    if style == STYLE_HALIN:
-        return 16, 8
-    if style == STYLE_SPARSE:
-        return 4, 12
-    return 8, 5
+def _bot_plan(style: int) -> Tuple[int, int, int]:
+    if style == 0:
+        return 90, 18, 45
+    if style == 3:
+        return 30, 10, 28
+    if style == 2:
+        return 10, 6, 22
+    return 0, 2, 18
 
 
-def _ghost_late_step(style: int) -> int:
-    if style == STYLE_SPARSE:
-        return 100
-    if style == STYLE_CLUSTER:
-        return 30
-    return 60
-
-
-def _plan(root_degree: int) -> Tuple[int, int]:
-    if root_degree >= 5:
-        return 8, 5
-    if root_degree >= 3:
-        return 16, 8
-    return 28, 12
-
-
-BASE_THRESHOLD = 50
-MIN_THRESHOLD = 10
-BOT_FALLBACK_STEP = 220
-BOT_FALLBACK_DEPTH = 13
-
-GHOST_GOOD_SLOT = 25
-GHOST_DEEP_EXTRA = 2
+def _ghost_plan(style: int) -> Tuple[int, int, int]:
+    if style == 0:
+        return 18, 120, 1
+    if style == 3:
+        return 9, 80, 4
+    if style == 2:
+        return 6, 60, 6
+    return 3, 35, 10
 
 
 def SubmissionBot(
@@ -80,13 +61,14 @@ def SubmissionBot(
 
     if data is None:
         style = _style(len(neighbors))
-        wait, _ = _bot_plan(style)
+        wait, _, _ = _bot_plan(style)
         state[15] = wait
         state[16] = style
 
     style = state[16]
-    _bit_set(state, pos)
+    wait, target_depth, threshold = _bot_plan(style)
 
+    _bit_set(state, pos)
     depth = state[13]
     mode = state[14]
 
@@ -99,14 +81,13 @@ def SubmissionBot(
 
     state[14] = 1
 
-    threshold = BASE_THRESHOLD - step // 25
-    if threshold < MIN_THRESHOLD:
-        threshold = MIN_THRESHOLD
+    late_threshold = 4 if style == 0 else 3
+    late_step = 280 if style == 0 else 180
 
     if has_slot and (
         slot_coins >= threshold
-        or (depth >= BOT_FALLBACK_DEPTH and slot_coins >= 8)
-        or (step >= BOT_FALLBACK_STEP and slot_coins >= 3)
+        or (depth >= target_depth and slot_coins >= 8)
+        or (step >= late_step and slot_coins >= late_threshold)
     ):
         state[14] = 2
         return -1, bytes(state)
@@ -142,48 +123,39 @@ def SubmissionGhost(
 
     # [0-15] visited
     # [16] depth
-    # [17] mode (0 explore, 1 chosen, 2 sample)
+    # [17] mode (0 explore, 1 chosen)
     # [18] target_depth
-    # [19] style
-    state = bytearray(20) if data is None else bytearray(data)
+    # [19] late_step
+    # [20] accept_small
+    state = bytearray(21) if data is None else bytearray(data)
 
     if data is None:
         style = _style(len(neighbors))
-        _, target_depth = _bot_plan(style)
+        target_depth, late_step, accept_small = _ghost_plan(style)
         state[18] = target_depth
-        state[19] = style
+        state[19] = late_step
+        state[20] = accept_small
 
     _bit_set(state, pos)
-
     depth = state[16]
     mode = state[17]
     target_depth = state[18]
-    style = state[19]
-
-    late_step = _ghost_late_step(style)
+    late_step = state[19]
+    accept_small = state[20]
 
     if mode == 1:
         return -1, bytes(state)
 
-    if mode == 2:
-        if slot_coins > 0 or step >= late_step + 120:
-            state[17] = 1
-            return -1, bytes(state)
-        state[17] = 0
-
-    if has_slot and depth >= target_depth and slot_coins >= GHOST_GOOD_SLOT:
+    if has_slot and depth >= target_depth and slot_coins >= 20:
         state[17] = 1
         return -1, bytes(state)
 
-    if has_slot and depth >= target_depth + GHOST_DEEP_EXTRA and slot_coins >= 5:
+    if has_slot and depth >= target_depth + 2 and slot_coins >= accept_small:
         state[17] = 1
         return -1, bytes(state)
 
     if has_slot and step >= late_step:
-        if slot_coins > 0:
-            state[17] = 1
-        else:
-            state[17] = 2
+        state[17] = 1
         return -1, bytes(state)
 
     for n in neighbors:

@@ -2,7 +2,7 @@
 """Run a local Lemon Tycoon game."""
 
 from engine import GameEngine
-from benchmark import RandomBuyer, GreedyHighID, HeavySaboteur
+from benchmark import DiversifiedInvestor, LeaderPunisher, CycleSaboteur
 from submission import SubmissionPlayer
 
 GAME_PARAMS = {
@@ -16,7 +16,7 @@ GAME_PARAMS = {
     "max_rounds": 200,
 }
 
-PLAYER_CTORS = [SubmissionPlayer, RandomBuyer, GreedyHighID, HeavySaboteur]
+PLAYER_CTORS = [SubmissionPlayer, DiversifiedInvestor, LeaderPunisher, CycleSaboteur]
 
 
 def run_game():
