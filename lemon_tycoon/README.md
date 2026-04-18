@@ -1,5 +1,18 @@
 # Lemon Tycoon
 
+## Local setup
+
+If your system Python is "externally managed" (PEP 668), install dependencies in a virtual environment:
+
+```bash
+cd lemon_tycoon
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+## Run locally
+
 Edit `submission.py`, then:
 
 ```bash

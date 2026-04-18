@@ -1,9 +1,19 @@
 from players.player import Player
 from typing import Dict, List, Tuple
 import math
+import random
 
 
-class SubmissionPlayer(Player):
+class SubmissionStrategy(Player):
+    """Adaptive strategy for Lemon Tycoon.
+
+    Key ideas:
+    - Buy according to expected value over remaining rounds.
+    - Diversify IDs when sabotage pressure is high.
+    - Sabotage only when estimated denial value exceeds cost.
+    - Use small per-player stochasticity to avoid mirror ties in self-play.
+    """
+
     def __init__(
         self,
         player_id: int,
@@ -27,116 +37,174 @@ class SubmissionPlayer(Player):
 
         self.production_rates = [2.0 * math.log2(i) for i in range(1, self.max_factory_id + 1)]
 
-        # Heuristic popularity estimate: how many total factories (across everyone)
-        # likely exist per ID. Updated from observed sabotage outcomes.
+        # Estimated opponent+global concentration per ID, learned from sabotages.
         self.id_popularity = [0.0] * (self.max_factory_id + 1)
-        for i in range(1, self.max_factory_id + 1):
-            # Bias toward high IDs, which rational strategies prefer.
-            self.id_popularity[i] = max(0.0, self.production_rates[i - 1] / 2.0)
 
-        self.last_round = -1
+        # Recent sabotage pressure per ID in [0, 1].
+        self.id_sabotage_pressure = [0.0] * (self.max_factory_id + 1)
 
-    def _update_popularity(
+        # Player-specific RNG to break symmetry in mirrors.
+        self.rng = random.Random(7919 * (player_id + 1) + 17)
+
+    def _update_beliefs(
         self,
         destroyed_factory_counts: Dict[int, int],
         sabotages_by_player: List[List[int]],
     ) -> None:
-        # Decay old information.
+        # Decay memory.
         for i in range(1, self.max_factory_id + 1):
-            self.id_popularity[i] *= 0.93
+            self.id_popularity[i] *= 0.92
+            self.id_sabotage_pressure[i] *= 0.82
 
-        # Fresh hard evidence from last round sabotages.
+        # Direct evidence from last-round sabotages.
         for factory_id, destroyed in destroyed_factory_counts.items():
             if 1 <= factory_id <= self.max_factory_id:
-                # If an ID was sabotaged and X were destroyed, then at least that many
-                # existed before sabotage.
                 self.id_popularity[factory_id] = max(self.id_popularity[factory_id], float(destroyed))
 
-        # If many players sabotaged an ID, it's probably important.
-        sabotage_pressure = [0] * (self.max_factory_id + 1)
-        for player_sabotages in sabotages_by_player:
-            for factory_id in player_sabotages:
-                if 1 <= factory_id <= self.max_factory_id:
-                    sabotage_pressure[factory_id] += 1
+        # How many distinct opponents targeted each ID last round.
+        hit_count = [0] * (self.max_factory_id + 1)
+        for pid, ids in enumerate(sabotages_by_player):
+            if pid == self.player_id:
+                continue
+            seen = set()
+            for factory_id in ids:
+                if 1 <= factory_id <= self.max_factory_id and factory_id not in seen:
+                    hit_count[factory_id] += 1
+                    seen.add(factory_id)
 
+        denom = max(1, self.num_players - 1)
         for factory_id in range(1, self.max_factory_id + 1):
-            if sabotage_pressure[factory_id] > 0:
-                self.id_popularity[factory_id] += 0.75 * sabotage_pressure[factory_id]
+            if hit_count[factory_id] > 0:
+                frac = hit_count[factory_id] / denom
+                self.id_sabotage_pressure[factory_id] += 0.6 * frac
 
-    def _select_sabotages(
+    def _effective_roi(self, factory_id: int, rounds_left: int, own_count: int) -> float:
+        """Expected net value of buying one factory of ID factory_id now."""
+        if rounds_left <= 1:
+            # No production time left; only liquidation value.
+            return self.sell_price - self.buy_price
+
+        production = self.production_rates[factory_id - 1]
+        prod_rounds = rounds_left - 1  # bought factories start producing next round
+
+        # Estimate lifetime survival probability from sabotage pressure.
+        pressure = min(0.85, self.id_sabotage_pressure[factory_id])
+        survival = max(0.2, (1.0 - pressure) ** max(1, prod_rounds // 2))
+
+        # Diversification penalty to avoid all-in concentration.
+        concentration_penalty = 1.0 / (1.0 + 0.015 * own_count)
+
+        expected_prod = production * prod_rounds * survival * concentration_penalty
+        return expected_prod + self.sell_price - self.buy_price
+
+    def _pick_buys(
+        self,
+        your_lemons: float,
+        your_factories: List[int],
+        rounds_left: int,
+    ) -> List[int]:
+        budget_count = int(your_lemons // self.buy_price)
+        if budget_count <= 0:
+            return []
+
+        # Score every ID by expected ROI + slight player/round jitter to break symmetry.
+        scored: List[Tuple[float, int]] = []
+        for factory_id in range(1, self.max_factory_id + 1):
+            own_count = your_factories[factory_id - 1]
+            roi = self._effective_roi(factory_id, rounds_left, own_count)
+            # Tiny deterministic noise for tie-breaking.
+            roi += 0.02 * self.rng.random()
+            # Mild per-player specialty to reduce mirror outcomes.
+            if factory_id in (16, 15, 14, 13):
+                roi += 0.03 * (((factory_id + self.player_id) % 4) == 0)
+            scored.append((roi, factory_id))
+
+        scored.sort(reverse=True)
+
+        buys: List[int] = []
+        # Buy from top EV IDs with cyclical diversification.
+        top_ids = [fid for roi, fid in scored if roi > 0.0][:6]
+        if not top_ids:
+            return []
+
+        for idx in range(budget_count):
+            # Re-evaluate lightly every pick to avoid overstacking one ID.
+            if idx % 3 == 0:
+                top_ids.sort(
+                    key=lambda fid: self._effective_roi(fid, rounds_left, your_factories[fid - 1] + buys.count(fid)),
+                    reverse=True,
+                )
+            pick = top_ids[idx % len(top_ids)]
+            buys.append(pick)
+
+        return buys
+
+    def _pick_sabotages(
         self,
         your_lemons: float,
         your_factories: List[int],
         all_lemons: List[float],
+        rounds_left: int,
     ) -> List[int]:
-        if your_lemons < self.sabotage_cost:
+        if your_lemons < self.sabotage_cost or rounds_left <= 1:
             return []
 
-        my_top_rival_lemons = max(all_lemons[pid] for pid in range(self.num_players) if pid != self.player_id)
-        rounds_left = self.max_rounds - self.last_round
+        richest_other = max(all_lemons[i] for i in range(self.num_players) if i != self.player_id)
+        close_race = richest_other >= self.goal_lemons * 0.82
+        late_game = rounds_left <= 22
 
-        # Threat score: expected value opponents might be getting from each ID.
-        # Penalize sabotaging IDs where we have many factories.
-        threat = []
-        total_own_factories = max(1, sum(your_factories))
+        candidates: List[Tuple[float, int]] = []
         for factory_id in range(1, self.max_factory_id + 1):
-            opp_estimate = max(0.0, self.id_popularity[factory_id] - your_factories[factory_id - 1])
-            own_share = your_factories[factory_id - 1] / total_own_factories
-            score = opp_estimate * self.production_rates[factory_id - 1] - 20.0 * own_share
-            threat.append((score, factory_id))
+            prod = self.production_rates[factory_id - 1]
+            est_total = self.id_popularity[factory_id]
+            own = your_factories[factory_id - 1]
+            est_opp = max(0.0, est_total - own)
 
-        threat.sort(reverse=True)
-        best_score, best_id = threat[0]
+            # Estimated denial value over remaining turns.
+            denial = est_opp * prod * max(1, rounds_left - 2)
+            self_harm = own * prod * max(1, rounds_left - 2)
+            score = denial - self_harm - self.sabotage_cost
+
+            # Prefer sabotaging high-pressure IDs only if we are not overexposed.
+            score += 8.0 * self.id_sabotage_pressure[factory_id]
+            candidates.append((score, factory_id))
+
+        candidates.sort(reverse=True)
+        best_score, best_id = candidates[0]
 
         sabotages: List[int] = []
-
-        # Emergency denial near endgame or if a rival is close to goal.
-        emergency = my_top_rival_lemons >= self.goal_lemons - 120 or rounds_left <= 18
-        if emergency and best_score > self.sabotage_cost:
+        # Aggressive sabotage near finish or when rival is close.
+        if (close_race or late_game) and best_score > 0:
             sabotages.append(best_id)
             if your_lemons >= 2 * self.sabotage_cost:
-                second_score, second_id = threat[1]
-                if second_score > self.sabotage_cost * 0.85 and second_id != best_id:
+                second_score, second_id = candidates[1]
+                if second_id != best_id and second_score > self.sabotage_cost * 0.25:
                     sabotages.append(second_id)
             return sabotages
 
-        # Normal play: occasional single sabotage when it looks efficient.
-        if your_lemons >= 4 * self.buy_price and best_score > self.sabotage_cost * 1.35:
+        # Mid-game opportunistic sabotage if very efficient.
+        if your_lemons >= self.sabotage_cost + 2 * self.buy_price and best_score > self.sabotage_cost * 0.7:
             sabotages.append(best_id)
 
         return sabotages
 
-    def _choose_buy_mix(
-        self,
-        your_factories: List[int],
-        sabotages_by_player: List[List[int]],
-    ) -> List[int]:
-        # Core set of strong IDs.
-        candidates = [16, 15, 14, 13]
-        candidates = [i for i in candidates if i <= self.max_factory_id]
-        if not candidates:
-            return [self.max_factory_id]
+    def _pick_sells(self, your_factories: List[int], rounds_left: int) -> List[int]:
+        # Usually selling is bad, but low IDs are weak and can be recycled early.
+        if rounds_left <= 5:
+            return []
 
-        # Penalize IDs that were heavily targeted last round.
-        sabotaged_count = {i: 0 for i in candidates}
-        for row in sabotages_by_player:
-            for factory_id in row:
-                if factory_id in sabotaged_count:
-                    sabotaged_count[factory_id] += 1
-
-        # Diversification pressure based on our current concentration.
-        own_total = max(1, sum(your_factories))
-        weighted_candidates = []
-        for idx, factory_id in enumerate(candidates):
-            base_weight = [0.48, 0.27, 0.16, 0.09][idx]
-            concentration = your_factories[factory_id - 1] / own_total
-            anti_concentration = max(0.5, 1.0 - 0.9 * concentration)
-            anti_sabotage = 1.0 / (1.0 + 0.55 * sabotaged_count[factory_id])
-            weighted_candidates.append((base_weight * anti_concentration * anti_sabotage, factory_id))
-
-        weighted_candidates.sort(reverse=True)
-        # Return IDs in descending preference order; purchase cycles through these.
-        return [factory_id for _, factory_id in weighted_candidates]
+        sells: List[int] = []
+        for factory_id in range(1, min(6, self.max_factory_id + 1)):
+            count = your_factories[factory_id - 1]
+            if count <= 0:
+                continue
+            if factory_id <= 2:
+                sells.extend([factory_id] * count)
+            elif factory_id <= 5 and rounds_left > 10:
+                # Keep one as a hedge, recycle extras.
+                extra = max(0, count - 1)
+                sells.extend([factory_id] * extra)
+        return sells
 
     def play(
         self,
@@ -147,49 +215,22 @@ class SubmissionPlayer(Player):
         destroyed_factory_counts: Dict[int, int],
         sabotages_by_player: List[List[int]],
     ) -> Tuple[List[int], List[int], List[int]]:
-        self.last_round = round_number
-        self._update_popularity(destroyed_factory_counts, sabotages_by_player)
-
         rounds_left = self.max_rounds - round_number
 
-        # Sell very low-value factories in early/mid game to recycle into high IDs.
-        sells: List[int] = []
-        if rounds_left > 4:
-            for factory_id in range(1, min(5, self.max_factory_id + 1)):
-                count = your_factories[factory_id - 1]
-                if count <= 0:
-                    continue
-                # Sell more aggressively for lower IDs.
-                if factory_id <= 2:
-                    sells.extend([factory_id] * count)
-                elif factory_id <= 4 and rounds_left > 7:
-                    # Keep at most one to avoid over-churn.
-                    extra = max(0, count - 1)
-                    if extra > 0:
-                        sells.extend([factory_id] * extra)
+        self._update_beliefs(destroyed_factory_counts, sabotages_by_player)
 
+        sells = self._pick_sells(your_factories, rounds_left)
         projected_lemons = your_lemons + len(sells) * self.sell_price
 
-        sabotages = self._select_sabotages(projected_lemons, your_factories, all_lemons)
+        sabotages = self._pick_sabotages(projected_lemons, your_factories, all_lemons, rounds_left)
         projected_lemons -= len(sabotages) * self.sabotage_cost
 
-        # Keep a small reserve in the final stretch; otherwise spend aggressively.
-        reserve = 0.0
-        if rounds_left <= 10:
-            reserve = self.buy_price
-
-        budget = max(0.0, projected_lemons - reserve)
-        buy_count = int(budget // self.buy_price)
-
-        buys: List[int] = []
-        if buy_count > 0:
-            preference_order = self._choose_buy_mix(your_factories, sabotages_by_player)
-            plen = len(preference_order)
-            for i in range(buy_count):
-                buys.append(preference_order[i % plen])
+        # Small reserve in endgame for tactical sabotage.
+        reserve = self.sabotage_cost if rounds_left <= 14 else 0.0
+        buys = self._pick_buys(max(0.0, projected_lemons - reserve), your_factories, rounds_left)
 
         return buys, sells, sabotages
 
 
-# Alias for some judges that expect this exact class name.
-SubmissionStrategy = SubmissionPlayer
+# Local runner imports SubmissionPlayer; keep compatibility.
+SubmissionPlayer = SubmissionStrategy
