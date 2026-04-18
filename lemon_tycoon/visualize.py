@@ -10,14 +10,12 @@ import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 
+from benchmark import RandomBuyer, GreedyHighID, HeavySaboteur
 from engine import GameEngine
 from submission import SubmissionPlayer
 
-# ──────────────────────────────────────────────
-# MODIFY THESE: import your own player classes
-# ──────────────────────────────────────────────
-PLAYER_CTORS = [SubmissionPlayer] * 4
-# ──────────────────────────────────────────────
+PLAYER_CTORS = [SubmissionPlayer, RandomBuyer, GreedyHighID, HeavySaboteur]
+PLAYER_NAMES = [player_ctor.__name__ for player_ctor in PLAYER_CTORS]
 
 GAME_PARAMS = {
     "num_players": 4,
@@ -79,7 +77,8 @@ def animate(history, game_params):
 
     lemon_lines = []
     for p in range(num_players):
-        (line,) = ax_lemons.plot([], [], color=PLAYER_COLORS[p], label=f"Player {p}", linewidth=2)
+        label = f"Player {p} ({PLAYER_NAMES[p]})"
+        (line,) = ax_lemons.plot([], [], color=PLAYER_COLORS[p], label=label, linewidth=2)
         lemon_lines.append(line)
 
     ax_lemons.axhline(goal, color="gray", linestyle="--", linewidth=1, label=f"Goal ({goal:.0f})")
@@ -96,7 +95,7 @@ def animate(history, game_params):
     for p in range(num_players):
         bars = ax_factories[p].bar(id_labels, np.zeros(num_ids), color=PLAYER_COLORS[p])
         factory_bars.append(bars)
-        ax_factories[p].set_title(f"Player {p}")
+        ax_factories[p].set_title(f"Player {p} ({PLAYER_NAMES[p]})")
         ax_factories[p].set_xlabel("Factory ID")
         ax_factories[p].set_ylim(0, max_factory_count + 1)
         ax_factories[p].set_xticks(id_labels)
@@ -124,10 +123,12 @@ def animate(history, game_params):
         winner_str = ""
         if frame == num_frames - 1:
             if history["winner"]:
-                winner_str = f" — Winner: Player {history['winner'][0]}"
+                winner_pid = history["winner"][0]
+                winner_str = f" — Winner: Player {winner_pid} ({PLAYER_NAMES[winner_pid]})"
             else:
                 rankings = np.argsort(-lemon_history[-1]).tolist()
-                winner_str = f" — Time out. Leader: Player {rankings[0]}"
+                leader_pid = rankings[0]
+                winner_str = f" — Time out. Leader: Player {leader_pid} ({PLAYER_NAMES[leader_pid]})"
         title.set_text(f"Round {frame} / {num_frames - 1}{winner_str}")
 
         return []

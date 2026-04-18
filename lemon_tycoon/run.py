@@ -2,6 +2,7 @@
 """Run a local Lemon Tycoon game."""
 
 from engine import GameEngine
+from benchmark import RandomBuyer, GreedyHighID, HeavySaboteur
 from submission import SubmissionPlayer
 
 GAME_PARAMS = {
@@ -15,7 +16,7 @@ GAME_PARAMS = {
     "max_rounds": 200,
 }
 
-PLAYER_CTORS = [SubmissionPlayer] * 4
+PLAYER_CTORS = [SubmissionPlayer, RandomBuyer, GreedyHighID, HeavySaboteur]
 
 
 def run_game():
@@ -27,7 +28,8 @@ def run_game():
         if state["round"] % 10 == 0 or state["game_over"]:
             print(f"\nRound {state['round']}:")
             for pid in range(GAME_PARAMS["num_players"]):
-                print(f"  Player {pid}: {state['lemons'][pid]:.2f} lemons")
+                name = PLAYER_CTORS[pid].__name__
+                print(f"  Player {pid} ({name}): {state['lemons'][pid]:.2f} lemons")
 
     state = engine.get_state()
     rankings = engine.get_rankings()
@@ -41,7 +43,8 @@ def run_game():
 
     print("\nFinal Rankings:")
     for rank, pid in enumerate(rankings):
-        print(f"  {rank + 1}. Player {pid}: {state['lemons'][pid]:.2f} lemons")
+        name = PLAYER_CTORS[pid].__name__
+        print(f"  {rank + 1}. Player {pid} ({name}): {state['lemons'][pid]:.2f} lemons")
 
 
 if __name__ == "__main__":

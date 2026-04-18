@@ -9,11 +9,13 @@ A competitive coin-collection game where a **Bot** and a **Ghost** traverse a gr
 Python 3.12 is required.
 
 **With uv (recommended):**
+
 ```bash
 uv sync
 ```
 
 **With pip:**
+
 ```bash
 python -m venv venv
 source venv/bin/activate   # Windows: venv\Scripts\activate
@@ -24,15 +26,15 @@ pip install -r requirements.txt
 
 ## Project structure
 
-| File / folder | Purpose |
-|---|---|
-| `engine.py` | `MazeSimulator`, `MazeEngine`, `Graph`, `Slot` — do not modify |
-| `submission.py` | Your `SubmissionBot` and `SubmissionGhost` implementations |
-| `config.py` | Simulation parameters (bot, ghost, graph style, seed) |
-| `bots/bot.py` | Function signatures for Bot and Ghost |
-| `bots/basic.py` | Simple reference implementations |
-| `cli.py` | Command-line interface |
-| `visualizer.py` | Interactive pygame visualizer |
+| File / folder   | Purpose                                                        |
+| --------------- | -------------------------------------------------------------- | --- |
+| `engine.py`     | `MazeSimulator`, `MazeEngine`, `Graph`, `Slot` — do not modify |
+| `submission.py` | Your `SubmissionBot` and `SubmissionGhost` implementations     |
+| `config.py`     | Simulation parameters (bot, ghost, graph style, seed)          |
+| `bots/bot.py`   | Function signatures for Bot and Ghost                          |
+| `bots/basic.py` | Simple reference implementations                               | x   |
+| `cli.py`        | Command-line interface                                         |
+| `visualizer.py` | Interactive pygame visualizer                                  |
 
 ---
 
@@ -52,18 +54,18 @@ slots_style = 1       # 1 = distance-based slots
 
 **Graph styles:**
 
-| Value | Description |
-|---|---|
-| `0` | Very sparse random maze |
-| `1` | Sparse random maze |
-| `2` | 5 dense clusters with sparse inter-cluster edges |
-| `3` | Halin graph (plane tree + leaf cycle) |
+| Value | Description                                      |
+| ----- | ------------------------------------------------ |
+| `0`   | Very sparse random maze                          |
+| `1`   | Sparse random maze                               |
+| `2`   | 5 dense clusters with sparse inter-cluster edges |
+| `3`   | Halin graph (plane tree + leaf cycle)            |
 
 **Slot styles:**
 
-| Value | Description |
-|---|---|
-| `1` | Distance-based: higher-value slots farther from the root |
+| Value | Description                                              |
+| ----- | -------------------------------------------------------- |
+| `1`   | Distance-based: higher-value slots farther from the root |
 
 ---
 
@@ -105,16 +107,16 @@ python cli.py visualize
 
 **Controls:**
 
-| Key / action | Effect |
-|---|---|
-| `Space` | Play / Pause |
-| `→` (right arrow) | Advance one step (while paused) |
-| `R` | Reset — re-runs `initialize()` with the same parameters |
-| `Esc` | Quit |
-| Speed slider | Drag to set simulation speed (0.5 – 120 steps/sec, log scale) |
-| Pause / Resume button | Same as `Space` |
-| Step button | Same as `→` |
-| Reset button | Same as `R` |
+| Key / action          | Effect                                                        |
+| --------------------- | ------------------------------------------------------------- |
+| `Space`               | Play / Pause                                                  |
+| `→` (right arrow)     | Advance one step (while paused)                               |
+| `R`                   | Reset — re-runs `initialize()` with the same parameters       |
+| `Esc`                 | Quit                                                          |
+| Speed slider          | Drag to set simulation speed (0.5 – 120 steps/sec, log scale) |
+| Pause / Resume button | Same as `Space`                                               |
+| Step button           | Same as `→`                                                   |
+| Reset button          | Same as `R`                                                   |
 
 Movement is smoothly animated between nodes. Slot pulls trigger a brief yellow-white flash on the node.
 
@@ -139,16 +141,16 @@ def Bot(step, total_steps, pos, last_pos, neighbors, has_slot, slot_coins, data)
     return (target, new_data)
 ```
 
-| Parameter | Type | Description |
-|---|---|---|
-| `step` | `int` | Current step number (1-indexed) |
-| `total_steps` | `int` | Total steps in the simulation |
-| `pos` | `int` | Current node index |
-| `last_pos` | `int` | Node index before the last move |
-| `neighbors` | `list[int]` | Adjacent node indices |
-| `has_slot` | `bool` | Whether the current node has a slot machine |
-| `slot_coins` | `int` | Coins currently stored at this node |
-| `data` | `Any` | Persistent state from the previous step |
+| Parameter     | Type        | Description                                 |
+| ------------- | ----------- | ------------------------------------------- |
+| `step`        | `int`       | Current step number (1-indexed)             |
+| `total_steps` | `int`       | Total steps in the simulation               |
+| `pos`         | `int`       | Current node index                          |
+| `last_pos`    | `int`       | Node index before the last move             |
+| `neighbors`   | `list[int]` | Adjacent node indices                       |
+| `has_slot`    | `bool`      | Whether the current node has a slot machine |
+| `slot_coins`  | `int`       | Coins currently stored at this node         |
+| `data`        | `Any`       | Persistent state from the previous step     |
 
 **Return value:** `(target, new_data)`
 
