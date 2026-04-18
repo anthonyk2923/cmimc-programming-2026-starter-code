@@ -6,6 +6,19 @@ STYLE_DENSE = 1
 STYLE_CLUSTER = 2
 STYLE_HALIN = 3
 
+BOT_WAIT = (4, 8, 8, 8)
+BOT_TARGET_DEPTH = (12, 5, 5, 12)
+BOT_STOP_THRESHOLD = (50, 50, 50, 50)
+BOT_LATE_STEP = (220, 220, 220, 220)
+BOT_LATE_THRESHOLD = (3, 3, 3, 3)
+
+GHOST_TARGET_DEPTH = (12, 5, 5, 8)
+GHOST_GOOD_SLOT = (25, 25, 25, 25)
+GHOST_DEEP_EXTRA = (2, 2, 2, 3)
+GHOST_DEEP_STOP = (5, 5, 5, 5)
+GHOST_LATE_STEP = (100, 70, 30, 60)
+GHOST_SAMPLE_LATE_ONLY = True
+
 
 def _bit_get(blob, idx: int) -> int:
     return (blob[idx >> 3] >> (idx & 7)) & 1
@@ -26,36 +39,15 @@ def _style(root_degree: int) -> int:
 
 
 def _bot_plan(style: int) -> Tuple[int, int]:
-    if style == STYLE_HALIN:
-        return 16, 8
-    if style == STYLE_SPARSE:
-        return 4, 12
-    return 8, 5
+    return BOT_WAIT[style], BOT_TARGET_DEPTH[style]
 
 
 def _ghost_late_step(style: int) -> int:
-    if style == STYLE_SPARSE:
-        return 100
-    if style == STYLE_CLUSTER:
-        return 30
-    return 60
+    return GHOST_LATE_STEP[style]
 
 
-def _plan(root_degree: int) -> Tuple[int, int]:
-    if root_degree >= 5:
-        return 8, 5
-    if root_degree >= 3:
-        return 16, 8
-    return 28, 12
-
-
-BASE_THRESHOLD = 50
-MIN_THRESHOLD = 10
-BOT_FALLBACK_STEP = 220
-BOT_FALLBACK_DEPTH = 13
-
-GHOST_GOOD_SLOT = 25
-GHOST_DEEP_EXTRA = 2
+def _ghost_deep_extra(style: int) -> int:
+    return GHOST_DEEP_EXTRA[style]
 
 
 def SubmissionBot(
@@ -99,14 +91,10 @@ def SubmissionBot(
 
     state[14] = 1
 
-    threshold = BASE_THRESHOLD - step // 25
-    if threshold < MIN_THRESHOLD:
-        threshold = MIN_THRESHOLD
-
     if has_slot and (
-        slot_coins >= threshold
-        or (depth >= BOT_FALLBACK_DEPTH and slot_coins >= 8)
-        or (step >= BOT_FALLBACK_STEP and slot_coins >= 3)
+        slot_coins >= BOT_STOP_THRESHOLD[style]
+        or (depth >= BOT_TARGET_DEPTH[style] and slot_coins >= 8)
+        or (step >= BOT_LATE_STEP[style] and slot_coins >= BOT_LATE_THRESHOLD[style])
     ):
         state[14] = 2
         return -1, bytes(state)
@@ -171,12 +159,16 @@ def SubmissionGhost(
             return -1, bytes(state)
         state[17] = 0
 
-    if has_slot and depth >= target_depth and slot_coins >= GHOST_GOOD_SLOT:
+    if has_slot and depth >= target_depth and slot_coins >= GHOST_GOOD_SLOT[style]:
         state[17] = 1
         return -1, bytes(state)
 
-    if has_slot and depth >= target_depth + GHOST_DEEP_EXTRA and slot_coins >= 5:
+    if has_slot and depth >= target_depth + _ghost_deep_extra(style) and slot_coins >= GHOST_DEEP_STOP[style]:
         state[17] = 1
+        return -1, bytes(state)
+
+    if has_slot and not GHOST_SAMPLE_LATE_ONLY and depth >= target_depth and slot_coins == 0:
+        state[17] = 2
         return -1, bytes(state)
 
     if has_slot and step >= late_step:
