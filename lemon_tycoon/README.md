@@ -18,6 +18,7 @@ Edit `submission.py`, then:
 ```bash
 python run.py          # simulate a game
 python visualize.py    # animated playback
+python benchmark.py    # run many matches vs baseline opponents
 ```
 
 Change `PLAYER_CTORS` in either file to mix opponents.
